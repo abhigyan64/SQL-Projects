@@ -1,1 +1,182 @@
-# SQL-Projects
+# SQL-Projects (credid_card_transactions)
+Credit Card Transaction of India
+
+I downloaded the dataset of credit_card_transaction from Kaggle (https://www.kaggle.com/datasets/thedevastator/analyzing-credit-card-spending-habits-in-india)
+
+I did some modifications while importing the data in SQL Server Management Studio 19.
+•	Change the data type of transaction_date from nvarchar to datetime.
+•	Change the data type of transaction_id from integer to nvarchar.
+•	There are 7 columns in the Credit Card Transaction (transaction_id, city, transaction_date, card_type, exp_type, gender, amount)
+
+I write some basic queries to know about the given dataset and these are my findings-
+•	Date Ranges between - 2013-10-04 (October 2013) and 2015-05-26. (May 2015)
+•	There were 4 types of Card (Silver, Signature, Gold, Platinum)
+•	There were 6 types of Expense Type (Entertainment, Food, Bills, Fuel, Travel, Grocery)
+•	We have data of 986 different cities from India
+
+I solved listed problem related to the given dataset
+
+1- Write a query to print top 5 cities with highest spends and their percentage contribution of total credit card spends?    
+
+WITH cte1 AS
+(
+  SELECT city, sum(amount) AS total_spent
+  from credit_card_transactions
+  GROUP BY city)
+
+,total_amount AS 
+(  SELECT sum(CAST(amount AS BIGINT)) AS total_amount 
+    FROM credit_card_transactions)
+
+SELECT TOP 5 *, ROUND((total_spent/total_amount) * 100 ,2) AS percentage_contribution
+FROM cte1 INNER JOIN total_amount 
+ON 1=1
+ORDER BY total_spent DESC
+
+
+
+2- Write a query to print highest spend month and amount spent in that month for each card type?
+
+WITH cte AS
+(
+SELECT card_type, DATEPART(Year, transaction_date) as yr, DATEPART(Month, transaction_date) as mn, sum(amount) AS total_spent
+FROM  credit_card_transactions
+GROUP BY card_type, DATEPART(Year, transaction_date), DATEPART(Month, transaction_date) )
+
+ SELECT * FROM (SELECT *, DENSE_RANK() OVER(PARTITION BY card_type ORDER BY total_spent DESC) AS rnk
+FROM cte) a WHERE rnk =1
+
+
+3- write a query to print the transaction details (all columns from the table) for each card type when it reaches a cumulative of 100000 total spent? (we have 4 rows in the output for each card type)
+
+WITH cte as
+(
+SELECT *, sum(amount) OVER(PARTITION BY card_type ORDER BY transaction_date, transaction_id ASC) AS total_spent
+FROM  credit_card_transactions )
+
+, cte2 AS 
+(
+SELECT *, RANK() OVER(PARTITION BY card_type ORDER BY total_spent ASC) AS rnk
+FROM cte 
+WHERE total_spent > 1000000 )
+
+SELECT transaction_id, card_type, total_spent
+FROM cte2
+WHERE rnk=1
+
+
+
+
+
+4- Write a query to find city which had lowest percentage spend for gold card type?
+
+WITH cte AS
+( SELECT city, card_type, sum(amount) as total_spent
+  FROM credit_card_transactions
+  WHERE card_type = 'Gold'
+  GROUP BY city, card_type )
+
+, cte2 AS
+(	SELECT sum(amount) as total_amount
+	FROM credit_card_transactions
+	WHERE card_type = 'Gold' )
+
+, cte3 AS(
+SELECT c1.city, c1.card_type, c1.total_spent, c2.total_amount, (c1.total_spent/c2.total_amount)*100 as contribution
+	FROM cte as c1 INNER JOIN cte2 as c2
+	ON 1=1 )
+
+, cte4 AS (
+SELECT *, RANK() OVER(ORDER BY contribution ) as rnk
+FROM cte3 )
+
+SELECT city, total_spent, contribution
+FROM cte4
+WHERE rnk =1
+
+5- write a query to print 3 columns:  city, highest_expense_type , lowest_expense_type? (example format : Delhi , bills, Fuel)
+
+WITH cte as
+(
+SELECT city, exp_type, SUM(amount) as spent
+FROM  credit_card_transactions
+GROUP BY city, exp_type )
+
+, cte2 AS
+(	SELECT city, exp_type, spent, RANK() OVER(PARTITION BY city ORDER BY spent DESC) max_spent, 
+	RANK() OVER(PARTITION BY city ORDER BY spent) min_spent
+	FROM cte  )
+
+SELECT city, MAX(CASE WHEN max_spent = 1 THEN exp_type END) AS highest_expense_type, 
+MAX(CASE WHEN min_spent = 1 THEN exp_type END) AS lowest_expense_type
+FROM cte2
+GROUP BY city 
+
+6- write a query to find percentage contribution of spends by females for each expense? 
+
+WITH cte AS
+(
+	SELECT exp_type,gender,  SUM(amount) as spent
+	FROM  credit_card_transactions
+	GROUP BY exp_type, gender )
+
+, cte2 AS
+(
+	SELECT exp_type, gender, spent, SUM(spent) OVER(PARTITION BY exp_type) as total_spent
+	FROM cte  )
+
+SELECT exp_type, gender, ROUND((spent/total_spent) * 100 ,2) AS female_contribution
+FROM cte2
+WHERE gender = 'F'
+
+7- which card and expense type combination saw highest month over month growth in Jan-2014?
+
+WITH cte AS
+(	SELECT card_type, exp_type, DATEPART(Year, transaction_date) as yr, DATEPART(Month, transaction_date) as mn, sum(amount) AS curr_month_spent
+	FROM  credit_card_transactions
+	GROUP BY card_type, exp_type, DATEPART(Year, transaction_date), DATEPART(Month, transaction_date) )
+
+, cte2 AS
+(	SELECT *, LAG(curr_month_spent,1,0) OVER(PARTITION BY card_type, exp_type ORDER BY yr, mn) prev_month_spent
+	FROM cte )
+
+SELECT TOP 1 *,  (curr_month_spent-prev_month_spent ) / prev_month_spent AS mon_growth
+FROM cte2
+WHERE prev_month_spent IS NOT NULL AND yr = 2014 AND mn =1 
+ORDER BY mon_growth DESC
+
+8- During weekends which city has highest total spend to total no of transactions ratio?
+
+SELECT TOP 1 city, (SUM(amount)/COUNT(transaction_id)) as ratio
+FROM  credit_card_transactions
+WHERE DATEPART(weekday, transaction_date) IN (1,7)
+-- WHERE DATENAME(weekday, transaction_date) IN ('Saturday','Sunday') 
+--(Slower that the first where condition as filteration works faster with integer value)
+GROUP BY city
+ORDER BY ratio DESC
+
+
+10- Which city took least number of days to reach its 500th transaction after the first transaction in that city?
+
+WITH cte AS
+(	SELECT city, transaction_date, ROW_NUMBER() OVER (PARTITION BY city ORDER BY transaction_date, transaction_id) as rnk
+	FROM  credit_card_transactions )
+
+, cte2 AS
+(	SELECT city, MIN(transaction_date) as first_transaction, MAX(transaction_date) as last_transaction
+	FROM cte
+	WHERE rnk =1 OR rnk=500
+	GROUP BY city
+	HAVING count(rnk) =2 )
+
+, cte3 AS
+(	SELECT *, DATEDIFF(day, first_transaction, last_transaction) as number_of_days
+	FROM cte2 )
+
+, cte4 AS
+(	SELECT *, RANK() OVER(ORDER BY number_of_days) as rnk
+	FROM cte3 )
+
+SELECT * FROM cte4
+WHERE rnk =1
+
