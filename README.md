@@ -1,4 +1,4 @@
-# SQL-Projects (credid_card_transactions)
+# SQL-Projects (credit_card_transactions)
 Credit Card Transaction of India
 
 I downloaded the dataset of credit_card_transaction from Kaggle (https://www.kaggle.com/datasets/thedevastator/analyzing-credit-card-spending-habits-in-india)
